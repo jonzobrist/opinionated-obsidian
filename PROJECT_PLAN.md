@@ -7,7 +7,9 @@ Transform Obsidian into a powerful document review workstation by integrating th
 1. **Multi-Persona Analysis**: Run parallel reviews from different AI "experts" (e.g., Security, Technical, Clarity).
 2. **Text Anchoring**: Reviews automatically link to specific excerpts in the note text.
 3. **Sidebar Feedback Feed**: A premium, dedicated view to browse and interact with reviewer comments.
-4. **Folder-Based Auto-Criteria**: Automatically apply specific review personas to any file within designated folders.
+4. **Folder-Based Auto-Criteria**: Automatically apply specific review personas to any file within designated folders. 
+    - *Inheritance-based*: Folders can inherit rules from parents.
+    - *Mapping*: `work/contracts/` -> [`Legal Persona`, `Risk Persona`].
 5. **Frontmatter Configuration**: Override or supplement review rules using YAML frontmatter (e.g., `review_persona: legal`).
 6. **Meta-Review Synthesis**: A "Meta-Reviewer" persona that summarizes and prioritizes all individual feedback.
 
@@ -15,8 +17,12 @@ Transform Obsidian into a powerful document review workstation by integrating th
 - **Language**: TypeScript
 - **Framework**: React (for complex UI components in the sidebar)
 - **Editor Integration**: Obsidian Markdown View + Codemirror 6 (for highlights)
-- **AI Engine**: Pluggable (OpenAI, Anthropic, Bedrock)
-- **Storage**: Vault-local settings and session-based review history.
+- **AI Engine**: Pluggable support for **OpenAI**, **Anthropic (Claude)**, and **AWS Bedrock**.
+- **Storage Strategy**: 
+    - Reviews are stored in a dedicated folder (e.g., `_reviews/`).
+    - Notes are linked to reviews via YAML frontmatter tags/properties (e.g., `opinionated_review: "[[_reviews/Note - Review]]"`).
+    - Reviews overwrite existing files (delegating history to the user's Git/Sync setup).
+- **Configuration**: Managed centrally via the Obsidian Community Plugin settings tab.
 
 ## Development Phases
 

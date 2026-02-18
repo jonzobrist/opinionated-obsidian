@@ -1,0 +1,35 @@
+{
+  "name": "opinionated-obsidian",
+  "version": "1.0.0",
+  "description": "Obsidian plugin for opinionated multi-persona document reviews",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jonzobrist/opinionated-obsidian.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/jonzobrist/opinionated-obsidian/issues"
+  },
+  "homepage": "https://github.com/jonzobrist/opinionated-obsidian#readme",
+  "dependencies": {
+    "lucide-react": "^0.574.0",
+    "obsidian": "^1.12.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "tslib": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.9.3"
+  }
+}
