@@ -1,0 +1,100 @@
+.opinionated-review-container {
+    padding: 16px;
+    height: 100%;
+    overflow-y: auto;
+    font-family: var(--font-interface);
+}
+
+.opinionated-review-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    padding-bottom: 10px;
+}
+
+.opinionated-refresh-btn {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.opinionated-comment-card {
+    background: var(--background-secondary);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 16px;
+    border: 1px solid var(--background-modifier-border);
+    transition: transform 0.1s ease;
+}
+
+.opinionated-comment-card:hover {
+    border-color: var(--interactive-accent);
+}
+
+.opinionated-persona-badge {
+    font-size: 10px;
+    font-weight: bold;
+    text-transform: uppercase;
+    color: var(--text-accent);
+    margin-bottom: 6px;
+}
+
+.opinionated-comment-text {
+    font-size: 13px;
+    line-height: 1.4;
+    margin-bottom: 8px;
+}
+
+.opinionated-comment-excerpt {
+    font-size: 11px;
+    font-style: italic;
+    color: var(--text-muted);
+    background: var(--background-primary);
+    padding: 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    border-left: 2px solid var(--interactive-accent);
+}
+
+.opinionated-comment-excerpt:hover {
+    background: var(--background-modifier-hover);
+}
+
+.opinionated-synthesis-card {
+    background: var(--background-primary-alt);
+    border: 1px solid var(--interactive-accent);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.opinionated-slogan {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--interactive-accent);
+    margin-bottom: 8px;
+}
+
+.opinionated-synthesis-text {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-normal);
+}
+
+.opinionated-loading,
+.opinionated-no-review,
+.opinionated-review-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-muted);
+    font-style: italic;
+}

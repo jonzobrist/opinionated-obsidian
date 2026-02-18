@@ -7,6 +7,7 @@ interface OpinionatedSettings {
     bedrockAccessKey: string;
     bedrockSecretKey: string;
     reviewFolder: string;
+    folderMappings: Record<string, string[]>; // folder path -> persona IDs
     personas: any[];
 }
 
@@ -17,17 +18,24 @@ const DEFAULT_SETTINGS: OpinionatedSettings = {
     bedrockAccessKey: '',
     bedrockSecretKey: '',
     reviewFolder: '_reviews',
+    folderMappings: {},
     personas: []
 }
 
 import { OpenAIProvider } from './services/llm';
 import { Reviewer } from './services/reviewer';
+import { ReviewView, VIEW_TYPE_REVIEW } from './views/ReviewView';
 
 export default class OpinionatedPlugin extends Plugin {
     settings: OpinionatedSettings = DEFAULT_SETTINGS;
 
     async onload() {
         await this.loadSettings();
+
+        this.registerView(
+            VIEW_TYPE_REVIEW,
+            (leaf) => new ReviewView(leaf, this.settings)
+        );
 
         this.addRibbonIcon('dice', 'Opinionated Review', async (evt: MouseEvent) => {
             const activeFile = this.app.workspace.getActiveFile();
@@ -36,6 +44,7 @@ export default class OpinionatedPlugin extends Plugin {
                 return;
             }
             await this.runReview(activeFile);
+            this.activateView();
         });
 
         this.addCommand({
@@ -48,6 +57,15 @@ export default class OpinionatedPlugin extends Plugin {
                     return;
                 }
                 await this.runReview(activeFile);
+                this.activateView();
+            }
+        });
+
+        this.addCommand({
+            id: 'open-opinionated-review-view',
+            name: 'Open Review Feed',
+            callback: () => {
+                this.activateView();
             }
         });
 
@@ -71,25 +89,78 @@ export default class OpinionatedPlugin extends Plugin {
         });
 
         this.addSettingTab(new OpinionatedSettingTab(this.app, this));
+
+        this.registerEvent(
+            this.app.workspace.on('file-open', (file) => {
+                const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_REVIEW);
+                leaves.forEach((leaf) => {
+                    if (leaf.view instanceof ReviewView) {
+                        leaf.view.updateFile(file);
+                    }
+                });
+            })
+        );
+    }
+
+    async activateView() {
+        const { workspace } = this.app;
+
+        let leaf = workspace.getLeavesOfType(VIEW_TYPE_REVIEW)[0];
+        if (!leaf) {
+            const rightLeaf = workspace.getRightLeaf(false);
+            if (rightLeaf) {
+                await rightLeaf.setViewState({
+                    type: VIEW_TYPE_REVIEW,
+                    active: true,
+                });
+                leaf = rightLeaf;
+            }
+        }
+
+        if (leaf) {
+            workspace.revealLeaf(leaf);
+            if (leaf.view instanceof ReviewView) {
+                leaf.view.updateFile(this.app.workspace.getActiveFile());
+            }
+        }
     }
 
     onunload() { }
 
     async runReview(file: any) {
-        if (this.settings.personas.length === 0) {
+        let personasToUse = [];
+        const filePath = file.path;
+        const parts = filePath.split('/');
+
+        // Collect personas from all parent folders (inheritance)
+        let currentPath = '';
+        for (const part of parts.slice(0, -1)) {
+            currentPath = currentPath ? `${currentPath}/${part}` : part;
+            if (this.settings.folderMappings[currentPath]) {
+                personasToUse.push(...this.settings.folderMappings[currentPath]);
+            }
+        }
+
+        // Remove duplicates and hydrate
+        personasToUse = [...new Set(personasToUse)];
+        let hydratedPersonas = personasToUse.map(id => this.settings.personas.find((p: any) => p.id === id)).filter(p => !!p);
+
+        // Fallback: Use all personas if no mapping matches
+        if (hydratedPersonas.length === 0) {
+            hydratedPersonas = this.settings.personas;
+        }
+
+        if (hydratedPersonas.length === 0) {
             new Notice('No personas defined. Please add at least one in settings.');
             return;
         }
 
-        new Notice('Running Opinionated Review...');
+        new Notice(`Running Opinionated Review with ${hydratedPersonas.length} personas...`);
         try {
             const reviewer = new Reviewer(this.app, this.settings);
-            const comments = await reviewer.review(file, this.settings.personas);
-            await reviewer.saveReview(file, comments);
+            const { comments, synthesis } = await reviewer.review(file, hydratedPersonas);
+            await reviewer.saveReview(file, comments, synthesis);
         } catch (e) {
-            // The original instruction's catch block referenced 'persona.name' and 'return []',
-            // which are not applicable in this context.
-            // Assuming the intent was to improve the error message for the overall review process.
             new Notice(`Review failed: ${e instanceof Error ? e.message : String(e)}`);
         }
     }
@@ -176,6 +247,60 @@ class OpinionatedSettingTab extends PluginSettingTab {
                     this.plugin.settings.bedrockSecretKey = value;
                     await this.plugin.saveSettings();
                 }));
+
+        containerEl.createEl('h3', { text: 'Folder Criteria' });
+        containerEl.createEl('p', { text: 'Automatically assign personas to specific folders. Sub-folders inherit parent mappings.' });
+
+        Object.entries(this.plugin.settings.folderMappings).forEach(([folderPath, personaIds]) => {
+            const s = new Setting(containerEl)
+                .setName(folderPath || '/')
+                .setDesc('Mapped to: ' + personaIds.map(id => this.plugin.settings.personas.find(p => p.id === id)?.name || id).join(', '))
+                .addExtraButton(btn => btn
+                    .setIcon('trash')
+                    .setTooltip('Remove Mapping')
+                    .onClick(async () => {
+                        delete this.plugin.settings.folderMappings[folderPath];
+                        await this.plugin.saveSettings();
+                        this.display();
+                    }));
+        });
+
+        new Setting(containerEl)
+            .setName('Add Folder Mapping')
+            .setDesc('Enter a folder path (e.g., work/contracts)')
+            .addText(text => text
+                .setPlaceholder('folder/path')
+                .then(t => {
+                    t.inputEl.onkeypress = async (e) => {
+                        if (e.key === 'Enter') {
+                            const val = t.getValue();
+                            if (val && !this.plugin.settings.folderMappings[val]) {
+                                this.plugin.settings.folderMappings[val] = [];
+                                await this.plugin.saveSettings();
+                                this.display();
+                            }
+                        }
+                    };
+                }));
+
+        // For each folder mapping, allow toggling personas
+        Object.keys(this.plugin.settings.folderMappings).forEach(folderPath => {
+            containerEl.createEl('h4', { text: `Personas for ${folderPath}` });
+            this.plugin.settings.personas.forEach(persona => {
+                new Setting(containerEl)
+                    .setName(persona.name)
+                    .addToggle(toggle => toggle
+                        .setValue(this.plugin.settings.folderMappings[folderPath].includes(persona.id))
+                        .onChange(async (value) => {
+                            if (value) {
+                                this.plugin.settings.folderMappings[folderPath].push(persona.id);
+                            } else {
+                                this.plugin.settings.folderMappings[folderPath] = this.plugin.settings.folderMappings[folderPath].filter(id => id !== persona.id);
+                            }
+                            await this.plugin.saveSettings();
+                        }));
+            });
+        });
 
         containerEl.createEl('h3', { text: 'Personas' });
         containerEl.createEl('p', { text: 'Define the experts who will review your documents.' });

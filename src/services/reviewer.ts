@@ -1,5 +1,6 @@
 import { App, TFile, Notice } from 'obsidian';
 import { LLMProvider, OpenAIProvider, AnthropicProvider, Persona } from './llm';
+import { MetaReviewer } from './meta_reviewer';
 
 export interface Comment {
     personaName: string;
@@ -12,7 +13,7 @@ export interface Comment {
 export class Reviewer {
     constructor(private app: App, private settings: any) { }
 
-    async review(file: TFile, personas: Persona[]): Promise<Comment[]> {
+    async review(file: TFile, personas: Persona[]): Promise<{ comments: Comment[], synthesis: string }> {
         const content = await this.app.vault.read(file);
         const provider = this.getProvider();
 
@@ -39,7 +40,13 @@ export class Reviewer {
         });
 
         const results = await Promise.all(reviewPromises);
-        return results.flat();
+        const comments = results.flat();
+
+        // Run Meta-Review synthesis
+        const metaReviewer = new MetaReviewer(provider);
+        const synthesis = await metaReviewer.synthesize(comments);
+
+        return { comments, synthesis };
     }
 
     private getProvider(): LLMProvider | null {
@@ -71,7 +78,7 @@ export class Reviewer {
         return results;
     }
 
-    async saveReview(file: TFile, comments: Comment[]) {
+    async saveReview(file: TFile, comments: Comment[], synthesis: string) {
         const reviewFolderPath = this.settings.reviewFolder;
         if (!await this.app.vault.adapter.exists(reviewFolderPath)) {
             await this.app.vault.createFolder(reviewFolderPath);
@@ -81,6 +88,8 @@ export class Reviewer {
         const reviewFilePath = `${reviewFolderPath}/${reviewFileName}`;
 
         let reviewContent = `---\ntags: [review]\noriginal_note: "[[${file.path}]]"\ndate: ${new Date().toISOString()}\n---\n\n# Review for ${file.basename}\n\n`;
+
+        reviewContent += `## Meta-Review Summary\n${synthesis}\n\n`;
 
         // Group by persona
         const grouped = comments.reduce((acc, c) => {
