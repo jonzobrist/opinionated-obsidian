@@ -5,15 +5,18 @@ interface Comment {
     personaName: string;
     text: string;
     excerpt?: string;
+    start?: number;
+    end?: number;
 }
 
 interface ReviewComponentProps {
     app: App;
     file: TFile | null;
     settings: any;
+    onHighlight: (from: number, to: number) => void;
 }
 
-export const ReviewComponent: React.FC<ReviewComponentProps> = ({ app, file, settings }) => {
+export const ReviewComponent: React.FC<ReviewComponentProps> = ({ app, file, settings, onHighlight }) => {
     const [comments, setComments] = React.useState<Comment[]>([]);
     const [synthesis, setSynthesis] = React.useState<string>('');
     const [loading, setLoading] = React.useState(false);
@@ -51,17 +54,34 @@ export const ReviewComponent: React.FC<ReviewComponentProps> = ({ app, file, set
         loadReview();
     }, [loadReview]);
 
-    const onCommentClick = (excerpt: string) => {
-        const leaf = app.workspace.getLeaf(false);
-        const view = leaf.view;
-        if (view instanceof MarkdownView) {
-            const editor = view.editor;
-            const content = editor.getValue();
-            const index = content.indexOf(excerpt);
-            if (index !== -1) {
-                const pos = editor.offsetToPos(index);
+    const onCommentClick = (comment: Comment) => {
+        if (comment.start !== undefined && comment.end !== undefined) {
+            onHighlight(comment.start, comment.end);
+
+            const leaf = app.workspace.getLeaf(false);
+            const view = leaf.view;
+            if (view instanceof MarkdownView) {
+                const editor = view.editor;
+                const pos = editor.offsetToPos(comment.start);
                 editor.setCursor(pos);
                 editor.scrollIntoView({ from: pos, to: pos }, true);
+            }
+            return;
+        }
+
+        if (comment.excerpt) {
+            const leaf = app.workspace.getLeaf(false);
+            const view = leaf.view;
+            if (view instanceof MarkdownView) {
+                const editor = view.editor;
+                const content = editor.getValue();
+                const index = content.indexOf(comment.excerpt);
+                if (index !== -1) {
+                    const pos = editor.offsetToPos(index);
+                    editor.setCursor(pos);
+                    editor.scrollIntoView({ from: pos, to: pos }, true);
+                    onHighlight(index, index + comment.excerpt.length);
+                }
             }
         }
     };
@@ -98,7 +118,7 @@ export const ReviewComponent: React.FC<ReviewComponentProps> = ({ app, file, set
                         {comment.excerpt && (
                             <div
                                 className="opinionated-comment-excerpt"
-                                onClick={() => onCommentClick(comment.excerpt!)}
+                                onClick={() => onCommentClick(comment)}
                             >
                                 "{comment.excerpt}"
                             </div>
@@ -110,11 +130,11 @@ export const ReviewComponent: React.FC<ReviewComponentProps> = ({ app, file, set
     );
 };
 
-function parseReviewFile(content: string): { comments: Comment[], synthesis: string } {
+export function parseReviewFile(content: string): { comments: Comment[], synthesis: string } {
     const comments: Comment[] = [];
     let synthesis = "";
 
-    const metaMatch = content.match(/## Meta-Review Summary\n([\s\S]*?)\n\n##/);
+    const metaMatch = content.match(/## Meta-Review Summary\n([\s\S]*?)(\n##|$)/);
     if (metaMatch) {
         synthesis = metaMatch[1].trim();
     }
@@ -127,9 +147,9 @@ function parseReviewFile(content: string): { comments: Comment[], synthesis: str
 
         for (let j = 1; j < lines.length; j++) {
             const line = lines[j].trim();
-            if (line.startsWith('- ')) {
+            if (line && (line.startsWith('- ') || line.startsWith('* '))) {
                 const text = line.substring(2);
-                const quoteMatch = text.match(/"([^"]{5,})"/);
+                const quoteMatch = text.match(/"([^"]{3,})"/); // Shorter quotes allowed
                 comments.push({
                     personaName,
                     text,

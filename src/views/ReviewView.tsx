@@ -9,7 +9,7 @@ export class ReviewView extends ItemView {
     root: ReactDOM.Root | null = null;
     activeFile: any = null;
 
-    constructor(leaf: WorkspaceLeaf, private settings: any) {
+    constructor(leaf: WorkspaceLeaf, private settings: any, private triggerHighlight: (from: number, to: number) => void) {
         super(leaf);
     }
 
@@ -47,6 +47,7 @@ export class ReviewView extends ItemView {
                         app={this.app}
                         file={this.activeFile}
                         settings={this.settings}
+                        onHighlight={this.triggerHighlight}
                     />
                 </React.StrictMode>
             );

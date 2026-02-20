@@ -4,3 +4,6 @@ main.js
 .DS_Store
 *.log
 .env
+coverage/
+.vscode/
+.idea/

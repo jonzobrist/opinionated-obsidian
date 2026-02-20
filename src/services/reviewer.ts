@@ -27,11 +27,13 @@ export class Reviewer {
                 const response = await provider.generate(content, systemPrompt);
 
                 // Parse bullets and excerpts
-                const bullets = this.parseReviewOutput(response.text);
+                const bullets = this.parseReviewOutput(response.text, content);
                 return bullets.map(b => ({
                     personaName: persona.name,
                     text: b.text,
-                    excerpt: b.excerpt
+                    excerpt: b.excerpt,
+                    start: b.start,
+                    end: b.end
                 }));
             } catch (e) {
                 new Notice(`Error from persona ${persona.name}: ${e instanceof Error ? e.message : String(e)}`);
@@ -59,19 +61,43 @@ export class Reviewer {
         return null;
     }
 
-    private parseReviewOutput(text: string): { text: string, excerpt?: string }[] {
-        // Basic parsing for "- Feedback "Quote""
+    private parseReviewOutput(text: string, content: string): { text: string, excerpt?: string, start?: number, end?: number }[] {
         const lines = text.split('\n');
-        const results: { text: string, excerpt?: string }[] = [];
+        const results: { text: string, excerpt?: string, start?: number, end?: number }[] = [];
 
         for (const line of lines) {
             const cleaned = line.trim().replace(/^[-*+]\s*/, '');
             if (!cleaned) continue;
 
             const quoteMatch = cleaned.match(/"([^"]{5,})"/);
+            let excerpt = quoteMatch ? quoteMatch[1] : undefined;
+            let start: number | undefined;
+            let end: number | undefined;
+
+            if (excerpt) {
+                const index = content.indexOf(excerpt);
+                if (index !== -1) {
+                    start = index;
+                    end = index + excerpt.length;
+                } else {
+                    // Fuzzy fallback: check lowercase
+                    const lowerContent = content.toLowerCase();
+                    const lowerExcerpt = excerpt.toLowerCase();
+                    const lowerIndex = lowerContent.indexOf(lowerExcerpt);
+                    if (lowerIndex !== -1) {
+                        start = lowerIndex;
+                        end = lowerIndex + excerpt.length;
+                        // Use actual text from content
+                        excerpt = content.substring(start, end);
+                    }
+                }
+            }
+
             results.push({
                 text: cleaned,
-                excerpt: quoteMatch ? quoteMatch[1] : undefined
+                excerpt,
+                start,
+                end
             });
         }
 

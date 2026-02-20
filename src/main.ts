@@ -1,4 +1,8 @@
 import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { OpenAIProvider, AnthropicProvider } from './services/llm';
+import { Reviewer } from './services/reviewer';
+import { ReviewView, VIEW_TYPE_REVIEW } from './views/ReviewView';
+import { reviewHighlightField, addReviewHighlight, clearReviewHighlight } from './editor/highlights';
 
 interface OpinionatedSettings {
     openAIKey: string;
@@ -8,6 +12,7 @@ interface OpinionatedSettings {
     bedrockSecretKey: string;
     reviewFolder: string;
     folderMappings: Record<string, string[]>; // folder path -> persona IDs
+    personaGroups: Record<string, string[]>; // group name -> persona IDs
     personas: any[];
 }
 
@@ -19,12 +24,9 @@ const DEFAULT_SETTINGS: OpinionatedSettings = {
     bedrockSecretKey: '',
     reviewFolder: '_reviews',
     folderMappings: {},
+    personaGroups: {},
     personas: []
 }
-
-import { OpenAIProvider } from './services/llm';
-import { Reviewer } from './services/reviewer';
-import { ReviewView, VIEW_TYPE_REVIEW } from './views/ReviewView';
 
 export default class OpinionatedPlugin extends Plugin {
     settings: OpinionatedSettings = DEFAULT_SETTINGS;
@@ -32,9 +34,11 @@ export default class OpinionatedPlugin extends Plugin {
     async onload() {
         await this.loadSettings();
 
+        this.registerEditorExtension([reviewHighlightField]);
+
         this.registerView(
             VIEW_TYPE_REVIEW,
-            (leaf) => new ReviewView(leaf, this.settings)
+            (leaf) => new ReviewView(leaf, this.settings, this.triggerHighlight.bind(this))
         );
 
         this.addRibbonIcon('dice', 'Opinionated Review', async (evt: MouseEvent) => {
@@ -73,17 +77,32 @@ export default class OpinionatedPlugin extends Plugin {
             id: 'test-ai-connection',
             name: 'Test AI Connection',
             callback: async () => {
-                if (!this.settings.openAIKey) {
-                    new Notice('No OpenAI API key found in settings.');
+                const { openAIKey, anthropicKey } = this.settings;
+                if (!openAIKey && !anthropicKey) {
+                    new Notice('No API keys found in settings.');
                     return;
                 }
-                new Notice('Testing OpenAI connection...');
-                try {
-                    const provider = new OpenAIProvider(this.settings.openAIKey);
-                    const response = await provider.generate('Hello, say connection successful!', 'You are a helpful assistant.');
-                    new Notice(`Response: ${response.text}`);
-                } catch (e) {
-                    new Notice(`Error: ${e instanceof Error ? e.message : String(e)}`);
+
+                if (openAIKey) {
+                    new Notice('Testing OpenAI connection...');
+                    try {
+                        const provider = new OpenAIProvider(openAIKey);
+                        const response = await provider.generate('Hello, say connection successful!', 'You are a helpful assistant.');
+                        new Notice(`OpenAI: ${response.text}`);
+                    } catch (e) {
+                        new Notice(`OpenAI Error: ${e instanceof Error ? e.message : String(e)}`);
+                    }
+                }
+
+                if (anthropicKey) {
+                    new Notice('Testing Anthropic connection...');
+                    try {
+                        const provider = new AnthropicProvider(anthropicKey);
+                        const response = await provider.generate('Hello, say connection successful!', 'You are a helpful assistant.');
+                        new Notice(`Anthropic: ${response.text}`);
+                    } catch (e) {
+                        new Notice(`Anthropic Error: ${e instanceof Error ? e.message : String(e)}`);
+                    }
                 }
             }
         });
@@ -127,6 +146,26 @@ export default class OpinionatedPlugin extends Plugin {
 
     onunload() { }
 
+    triggerHighlight(from: number, to: number) {
+        const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (activeView) {
+            // @ts-ignore - access CM6 view
+            const editorView = activeView.editor.cm;
+            if (editorView) {
+                editorView.dispatch({
+                    effects: [addReviewHighlight.of({ from, to })]
+                });
+
+                // Clear highlight after 3 seconds
+                setTimeout(() => {
+                    editorView.dispatch({
+                        effects: [clearReviewHighlight.of()]
+                    });
+                }, 3000);
+            }
+        }
+    }
+
     async runReview(file: any) {
         let personasToUse = [];
         const filePath = file.path;
@@ -138,6 +177,31 @@ export default class OpinionatedPlugin extends Plugin {
             currentPath = currentPath ? `${currentPath}/${part}` : part;
             if (this.settings.folderMappings[currentPath]) {
                 personasToUse.push(...this.settings.folderMappings[currentPath]);
+            }
+        }
+
+        // Check Frontmatter for overrides
+        const cache = this.app.metadataCache.getFileCache(file);
+        if (cache?.frontmatter) {
+            const fmPersonas = cache.frontmatter.opinionated_personas;
+            const fmGroups = cache.frontmatter.opinionated_groups;
+
+            if (Array.isArray(fmPersonas)) {
+                // If frontmatter specifies personas, we might want to OVERRIDE or APPEND. 
+                // Let's go with OVERRIDE if provided.
+                personasToUse = fmPersonas;
+            } else if (typeof fmPersonas === 'string') {
+                personasToUse = [fmPersonas];
+            }
+
+            if (Array.isArray(fmGroups)) {
+                fmGroups.forEach(groupName => {
+                    if (this.settings.personaGroups[groupName]) {
+                        personasToUse.push(...this.settings.personaGroups[groupName]);
+                    }
+                });
+            } else if (typeof fmGroups === 'string' && this.settings.personaGroups[fmGroups]) {
+                personasToUse.push(...this.settings.personaGroups[fmGroups]);
             }
         }
 
@@ -348,6 +412,56 @@ class OpinionatedSettingTab extends PluginSettingTab {
                     });
                     await this.plugin.saveSettings();
                     this.display();
+                }));
+
+        containerEl.createEl('h3', { text: 'Persona Groups' });
+        containerEl.createEl('p', { text: 'Combine multiple personas into a single group for easier management.' });
+
+        Object.entries(this.plugin.settings.personaGroups).forEach(([groupName, personaIds]) => {
+            const s = new Setting(containerEl)
+                .setName(groupName)
+                .setDesc('Contains: ' + personaIds.map(id => this.plugin.settings.personas.find((p: any) => p.id === id)?.name || id).join(', '))
+                .addExtraButton(btn => btn
+                    .setIcon('trash')
+                    .setTooltip('Delete Group')
+                    .onClick(async () => {
+                        delete this.plugin.settings.personaGroups[groupName];
+                        await this.plugin.saveSettings();
+                        this.display();
+                    }));
+
+            // Toggle personas in this group
+            this.plugin.settings.personas.forEach(persona => {
+                new Setting(containerEl)
+                    .setName(`Include ${persona.name}`)
+                    .addToggle(toggle => toggle
+                        .setValue(this.plugin.settings.personaGroups[groupName].includes(persona.id))
+                        .onChange(async (value) => {
+                            if (value) {
+                                this.plugin.settings.personaGroups[groupName].push(persona.id);
+                            } else {
+                                this.plugin.settings.personaGroups[groupName] = this.plugin.settings.personaGroups[groupName].filter(id => id !== persona.id);
+                            }
+                            await this.plugin.saveSettings();
+                        }));
+            });
+        });
+
+        new Setting(containerEl)
+            .setName('Create New Group')
+            .addText(text => text
+                .setPlaceholder('Group Name')
+                .then(t => {
+                    t.inputEl.onkeypress = async (e) => {
+                        if (e.key === 'Enter') {
+                            const val = t.getValue();
+                            if (val && !this.plugin.settings.personaGroups[val]) {
+                                this.plugin.settings.personaGroups[val] = [];
+                                await this.plugin.saveSettings();
+                                this.display();
+                            }
+                        }
+                    };
                 }));
     }
 }
